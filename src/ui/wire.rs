@@ -21,19 +21,33 @@ pub enum WireLayer {
     AboveNodes,
 }
 
+/// Unique identifier for a wire in the graph.
+///
+/// Wires can be either established connections between pins,
+/// or in-progress wires being dragged by the user.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WireId {
+    /// An established connection between an output and input pin.
     Connected {
+        /// The snarl instance this wire belongs to.
         snarl_id: Id,
+        /// The output pin this wire connects from.
         out_pin: OutPinId,
+        /// The input pin this wire connects to.
         in_pin: InPinId,
     },
+    /// A wire being dragged from an input pin (looking for an output).
     NewInput {
+        /// The snarl instance this wire belongs to.
         snarl_id: Id,
+        /// The input pin this wire is dragged from.
         in_pin: InPinId,
     },
+    /// A wire being dragged from an output pin (looking for an input).
     NewOutput {
+        /// The snarl instance this wire belongs to.
         snarl_id: Id,
+        /// The output pin this wire is dragged from.
         out_pin: OutPinId,
     },
 }

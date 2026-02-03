@@ -16,7 +16,7 @@ use egui::{
 use egui_scale::EguiScale;
 use smallvec::SmallVec;
 
-use crate::{InPin, InPinId, Node, NodeId, OutPin, OutPinId, Snarl, ui::wire::WireId};
+use crate::{InPin, InPinId, Node, NodeId, OutPin, OutPinId, Snarl};
 
 mod background_pattern;
 mod pin;
@@ -26,18 +26,52 @@ mod viewer;
 mod wire;
 
 use self::{
-    pin::AnyPin,
     state::{NewWires, NodeState, RowHeights, SnarlState},
     wire::{draw_wire, hit_wire, pick_wire_style},
 };
 
 pub use self::{
     background_pattern::{BackgroundPattern, Grid},
-    pin::{AnyPins, PinInfo, PinShape, PinWireInfo, SnarlPin},
-    state::get_selected_nodes,
+    pin::{AnyPin, AnyPins, PinInfo, PinShape, PinWireInfo, SnarlPin},
+    state::{
+        deselect_all_nodes, fit_to_rect, get_selected_nodes, get_viewport_transform, reset_zoom,
+        select_all_nodes, set_viewport_transform,
+    },
     viewer::SnarlViewer,
-    wire::{WireLayer, WireStyle},
+    wire::{WireId, WireLayer, WireStyle},
 };
+
+/// Response from showing a snarl graph.
+///
+/// Contains the egui response plus events that occurred during this frame.
+/// Use these events to trigger actions like undo checkpoints.
+#[derive(Debug)]
+pub struct SnarlResponse {
+    /// The underlying egui response.
+    pub response: egui::Response,
+
+    /// A node drag operation ended this frame.
+    ///
+    /// When true, the nodes have been moved to new positions and
+    /// this is a good time to create an undo checkpoint.
+    pub node_drag_ended: bool,
+
+    /// A wire was connected this frame.
+    pub wire_connected: bool,
+
+    /// A wire was disconnected this frame.
+    pub wire_disconnected: bool,
+}
+
+impl SnarlResponse {
+    /// Returns true if any state-modifying event occurred.
+    ///
+    /// Useful for knowing when to create an undo checkpoint.
+    #[must_use]
+    pub fn state_changed(&self) -> bool {
+        self.node_drag_ended || self.wire_connected || self.wire_disconnected
+    }
+}
 
 /// Controls how header, pins, body and footer are placed in the node.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -797,6 +831,7 @@ impl Default for SnarlStyle {
 struct DrawNodeResponse {
     node_moved: Option<(NodeId, Vec2)>,
     node_to_top: Option<NodeId>,
+    node_drag_stopped: bool,
     drag_released: bool,
     pin_hovered: Option<AnyPin>,
     final_rect: Rect,
@@ -905,8 +940,20 @@ impl SnarlWidget {
     }
 
     /// Render [`Snarl`] using given viewer and style into the [`Ui`].
+    ///
+    /// The `input` parameter receives actions to be processed this frame.
+    /// Actions can come from keyboard shortcuts, mouse gestures, or touch events.
+    ///
+    /// Returns a [`SnarlResponse`] containing the egui response and events
+    /// that occurred (like node drag ended, wire connected, etc.).
     #[inline]
-    pub fn show<T, V>(&self, snarl: &mut Snarl<T>, viewer: &mut V, ui: &mut Ui) -> egui::Response
+    pub fn show<T, V>(
+        &self,
+        snarl: &mut Snarl<T>,
+        viewer: &mut V,
+        input: &mut crate::action::SnarlInputState,
+        ui: &mut Ui,
+    ) -> SnarlResponse
     where
         V: SnarlViewer<T>,
     {
@@ -919,6 +966,7 @@ impl SnarlWidget {
             self.max_size,
             snarl,
             viewer,
+            input,
             ui,
         )
     }
@@ -932,12 +980,15 @@ fn show_snarl<T, V>(
     max_size: Vec2,
     snarl: &mut Snarl<T>,
     viewer: &mut V,
+    input: &mut crate::action::SnarlInputState,
     ui: &mut Ui,
-) -> egui::Response
+) -> SnarlResponse
 where
     V: SnarlViewer<T>,
 {
     #![allow(clippy::too_many_lines)]
+
+    use crate::action::SnarlAction;
 
     let (mut latest_pos, modifiers) = ui.ctx().input(|i| (i.pointer.latest_pos(), i.modifiers));
 
@@ -967,6 +1018,151 @@ where
     let mut snarl_state =
         SnarlState::load(ui.ctx(), snarl_id, snarl, ui_rect, min_scale, max_scale);
     let mut to_global = snarl_state.to_global();
+
+    // Process injected actions
+    for action in input.drain() {
+        match action {
+            // === Selection actions ===
+            SnarlAction::SelectNode { node, additive } => {
+                snarl_state.select_one_node(!additive, node);
+            }
+            SnarlAction::DeselectNode(node) => {
+                snarl_state.deselect_one_node(node);
+            }
+            SnarlAction::SelectAll => {
+                let all_nodes = snarl.node_ids().map(|(id, _)| id);
+                snarl_state.select_many_nodes(true, all_nodes);
+            }
+            SnarlAction::DeselectAll => {
+                snarl_state.deselect_all_nodes();
+            }
+            SnarlAction::RectSelect { rect, mode } => {
+                // Find nodes in rect
+                // Note: This is a simplified version - actual node rects need to be computed
+                let nodes_in_rect = snarl.node_ids().filter_map(|(id, _)| {
+                    let node = &snarl.nodes[id.0];
+                    if rect.contains(node.pos) {
+                        Some(id)
+                    } else {
+                        None
+                    }
+                });
+
+                match mode {
+                    crate::action::SelectMode::Replace => {
+                        snarl_state.select_many_nodes(true, nodes_in_rect);
+                    }
+                    crate::action::SelectMode::Add => {
+                        snarl_state.select_many_nodes(false, nodes_in_rect);
+                    }
+                    crate::action::SelectMode::Subtract => {
+                        snarl_state.deselect_many_nodes(nodes_in_rect);
+                    }
+                    crate::action::SelectMode::Toggle => {
+                        for node in nodes_in_rect {
+                            if snarl_state.selected_nodes().contains(&node) {
+                                snarl_state.deselect_one_node(node);
+                            } else {
+                                snarl_state.select_one_node(false, node);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // === Node movement ===
+            SnarlAction::MoveNode { node, delta } => {
+                // Move the node and all selected nodes if it's selected
+                if snarl_state.selected_nodes().contains(&node) {
+                    for &sel_node in snarl_state.selected_nodes() {
+                        if snarl.nodes.contains(sel_node.0) {
+                            snarl.nodes[sel_node.0].pos += delta;
+                        }
+                    }
+                } else if snarl.nodes.contains(node.0) {
+                    snarl.nodes[node.0].pos += delta;
+                }
+            }
+            SnarlAction::BringToTop(node) => {
+                snarl_state.node_to_top(node);
+            }
+            SnarlAction::ToggleOpen(node) => {
+                if snarl.nodes.contains(node.0) {
+                    snarl.nodes[node.0].open = !snarl.nodes[node.0].open;
+                }
+            }
+
+            // === Viewport actions ===
+            SnarlAction::Pan(delta) => {
+                to_global.translation += delta;
+            }
+            SnarlAction::Zoom { center, factor } => {
+                // Zoom around the center point
+                let graph_center = (center - to_global.translation) / to_global.scaling;
+                to_global.scaling = (to_global.scaling * factor).clamp(min_scale, max_scale);
+                to_global.translation = center.to_vec2() - graph_center.to_vec2() * to_global.scaling;
+            }
+            SnarlAction::FitToView => {
+                // Compute bounding box of all nodes
+                let mut bb = Rect::NOTHING;
+                for (_, node) in &snarl.nodes {
+                    bb.extend_with(node.pos);
+                }
+                if bb.is_finite() {
+                    let bb = bb.expand(100.0);
+                    let scaling2 = ui_rect.size() / bb.size();
+                    let scaling = scaling2.min_elem().clamp(min_scale, max_scale);
+                    to_global = TSTransform {
+                        scaling,
+                        translation: ui_rect.center().to_vec2() - bb.center().to_vec2() * scaling,
+                    };
+                }
+            }
+            SnarlAction::ResetZoom => {
+                let graph_center = (ui_rect.center() - to_global.translation) / to_global.scaling;
+                to_global = TSTransform {
+                    scaling: 1.0,
+                    translation: ui_rect.center().to_vec2() - graph_center.to_vec2(),
+                };
+            }
+            SnarlAction::CenterOn(rect) => {
+                let rect = rect.expand(100.0);
+                let scaling2 = ui_rect.size() / rect.size();
+                let scaling = scaling2.min_elem().clamp(min_scale, max_scale);
+                to_global = TSTransform {
+                    scaling,
+                    translation: ui_rect.center().to_vec2() - rect.center().to_vec2() * scaling,
+                };
+            }
+
+            // === Wire actions (handled partially - full wire handling stays in snarl) ===
+            SnarlAction::StartWire(_pin) => {
+                // Wire starting is handled by pin interaction in draw_node
+                // This action is for external triggering (not commonly used)
+            }
+            SnarlAction::CancelWire => {
+                let _ = snarl_state.take_new_wires();
+            }
+            SnarlAction::DisconnectWire(wire_id) => {
+                // Wire disconnection needs the viewer's disconnect method
+                // For now, store it and process after we have viewer access
+                // TODO: Implement wire disconnect via action
+                let _ = wire_id;
+            }
+
+            // === Menu actions (trigger context menus) ===
+            SnarlAction::NodeMenu { .. }
+            | SnarlAction::GraphMenu(_)
+            | SnarlAction::WireDropMenu { .. } => {
+                // Menu actions are handled by egui's context_menu system
+                // These could be used to programmatically trigger menus
+                // For now, menus are triggered by mouse interaction
+            }
+        }
+    }
+
+    // Apply viewport changes
+    snarl_state.set_to_global(to_global);
 
     let clip_rect = ui.clip_rect();
 
@@ -1069,6 +1265,11 @@ where
 
     let draw_order = snarl_state.update_draw_order(snarl);
     let mut drag_released = false;
+    let mut any_node_drag_stopped = false;
+
+    // Track events for SnarlResponse
+    let mut wire_connected = false;
+    let mut wire_disconnected = false;
 
     let mut nodes_bb = Rect::NOTHING;
     let mut node_rects = Vec::new();
@@ -1103,6 +1304,7 @@ where
                 pin_hovered = Some(v);
             }
             drag_released |= response.drag_released;
+            any_node_drag_stopped |= response.node_drag_stopped;
 
             nodes_bb = nodes_bb.union(response.final_rect);
             if rect_selection_ended.is_some() {
@@ -1190,23 +1392,32 @@ where
         let out_pin = OutPin::new(snarl, wire.out_pin);
         let in_pin = InPin::new(snarl, wire.in_pin);
         viewer.disconnect(&out_pin, &in_pin, snarl);
+        wire_disconnected = true;
     }
 
     if let Some(select_rect) = rect_selection_ended {
-        let select_nodes = node_rects.into_iter().filter_map(|(id, rect)| {
-            let select = if style.get_select_rect_contained() {
-                select_rect.contains_rect(rect)
-            } else {
-                select_rect.intersects(rect)
-            };
+        let select_nodes: Vec<_> = node_rects
+            .into_iter()
+            .filter_map(|(id, rect)| {
+                let select = if style.get_select_rect_contained() {
+                    select_rect.contains_rect(rect)
+                } else {
+                    select_rect.intersects(rect)
+                };
 
-            if select { Some(id) } else { None }
-        });
+                if select { Some(id) } else { None }
+            })
+            .collect();
 
-        if modifiers.command {
-            snarl_state.deselect_many_nodes(select_nodes);
+        if select_nodes.is_empty() {
+            // Empty rect selection = deselect all
+            // Note: shift is required to start rect selection, so we can't check
+            // modifiers here - they'd always be held. Empty rect always deselects.
+            snarl_state.deselect_all_nodes();
+        } else if modifiers.command {
+            snarl_state.deselect_many_nodes(select_nodes.into_iter());
         } else {
-            snarl_state.select_many_nodes(!modifiers.shift, select_nodes);
+            snarl_state.select_many_nodes(!modifiers.shift, select_nodes.into_iter());
         }
     }
 
@@ -1238,7 +1449,8 @@ where
         snarl_state.look_at(nodes_bb, ui_rect, min_scale, max_scale);
     }
 
-    if modifiers.command && snarl_resp.clicked_by(PointerButton::Primary) {
+    // Clicking on empty background deselects all (unless shift is held for additive mode)
+    if snarl_resp.clicked_by(PointerButton::Primary) && !modifiers.shift {
         snarl_state.deselect_all_nodes();
     }
 
@@ -1258,6 +1470,7 @@ where
                         &InPin::new(snarl, in_pin),
                         snarl,
                     );
+                    wire_connected = true;
                 }
             }
             (Some(NewWires::Out(out_pins)), Some(AnyPin::In(in_pin))) => {
@@ -1267,6 +1480,7 @@ where
                         &InPin::new(snarl, in_pin),
                         snarl,
                     );
+                    wire_connected = true;
                 }
             }
             (Some(new_wires), None) if snarl_resp.hovered() => {
@@ -1403,7 +1617,12 @@ where
 
     snarl_state.store(snarl, ui.ctx());
 
-    snarl_resp
+    SnarlResponse {
+        response: snarl_resp,
+        node_drag_ended: any_node_drag_stopped,
+        wire_connected,
+        wire_disconnected,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1859,8 +2078,12 @@ where
         Sense::click_and_drag(),
     );
 
+    let mut node_drag_stopped = false;
     if !modifiers.shift && !modifiers.command && r.dragged_by(PointerButton::Primary) {
         node_moved = Some((node, r.drag_delta()));
+    }
+    if !modifiers.shift && !modifiers.command && r.drag_stopped_by(PointerButton::Primary) {
+        node_drag_stopped = true;
     }
 
     if r.clicked_by(PointerButton::Primary) || r.dragged_by(PointerButton::Primary) {
@@ -2462,6 +2685,7 @@ where
     Some(DrawNodeResponse {
         node_moved,
         node_to_top,
+        node_drag_stopped,
         drag_released,
         pin_hovered,
         final_rect: r.response.rect,
@@ -2549,8 +2773,21 @@ const fn mix_colors(a: Color32, b: Color32) -> Color32 {
 
 impl<T> Snarl<T> {
     /// Render [`Snarl`] using given viewer and style into the [`Ui`].
+    ///
+    /// The `input` parameter receives actions to be processed this frame.
+    /// Actions can come from keyboard shortcuts, mouse gestures, or touch events.
+    ///
+    /// Returns a [`SnarlResponse`] containing the egui response and events
+    /// that occurred (like node drag ended, wire connected, etc.).
     #[inline]
-    pub fn show<V>(&mut self, viewer: &mut V, style: &SnarlStyle, id_salt: impl Hash, ui: &mut Ui)
+    pub fn show<V>(
+        &mut self,
+        viewer: &mut V,
+        style: &SnarlStyle,
+        input: &mut crate::action::SnarlInputState,
+        id_salt: impl Hash,
+        ui: &mut Ui,
+    ) -> SnarlResponse
     where
         V: SnarlViewer<T>,
     {
@@ -2561,8 +2798,9 @@ impl<T> Snarl<T> {
             Vec2::INFINITY,
             self,
             viewer,
+            input,
             ui,
-        );
+        )
     }
 }
 

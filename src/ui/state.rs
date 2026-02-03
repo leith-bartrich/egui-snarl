@@ -622,3 +622,96 @@ pub fn get_selected_nodes(id: Id, ctx: &Context) -> Vec<NodeId> {
     ctx.data(|d| d.get_temp::<SelectedNodes>(id).unwrap_or_default().0)
         .into_vec()
 }
+
+/// Select all nodes in the graph.
+///
+/// This replaces the current selection with all nodes in the snarl.
+#[inline]
+pub fn select_all_nodes<T>(id: Id, ctx: &Context, snarl: &Snarl<T>) {
+    let node_ids: SmallVec<[NodeId; 8]> = snarl.node_ids().map(|(node_id, _)| node_id).collect();
+    ctx.data_mut(|d| {
+        d.insert_temp(id, SelectedNodes(node_ids));
+    });
+    ctx.request_repaint();
+}
+
+/// Clear the current selection.
+#[inline]
+pub fn deselect_all_nodes(id: Id, ctx: &Context) {
+    ctx.data_mut(|d| {
+        d.remove_temp::<SelectedNodes>(id);
+    });
+    ctx.request_repaint();
+}
+
+/// Get the current viewport transform.
+///
+/// Returns `None` if the snarl state hasn't been initialized yet.
+#[must_use]
+#[inline]
+pub fn get_viewport_transform(id: Id, ctx: &Context) -> Option<TSTransform> {
+    ctx.data(|d| d.get_temp::<SnarlStateData>(id).map(|s| s.to_global))
+}
+
+/// Set the viewport transform directly.
+///
+/// This allows external control of pan and zoom.
+#[inline]
+pub fn set_viewport_transform(id: Id, ctx: &Context, transform: TSTransform) {
+    ctx.data_mut(|d| {
+        if let Some(mut state) = d.get_temp::<SnarlStateData>(id) {
+            state.to_global = transform;
+            d.insert_temp(id, state);
+        }
+    });
+    ctx.request_repaint();
+}
+
+/// Fit the given bounding box in the viewport.
+///
+/// The view will be centered on `rect` and scaled to fit within `viewport`,
+/// respecting the min/max scale limits.
+#[inline]
+pub fn fit_to_rect(
+    id: Id,
+    ctx: &Context,
+    rect: Rect,
+    viewport: Rect,
+    min_scale: f32,
+    max_scale: f32,
+) {
+    let rect = rect.expand(100.0);
+    let scaling2 = viewport.size() / rect.size();
+    let scaling = scaling2.min_elem().clamp(min_scale, max_scale);
+    let to_global = TSTransform {
+        scaling,
+        translation: viewport.center().to_vec2() - rect.center().to_vec2() * scaling,
+    };
+
+    ctx.data_mut(|d| {
+        if let Some(mut state) = d.get_temp::<SnarlStateData>(id) {
+            state.to_global = to_global;
+            d.insert_temp(id, state);
+        }
+    });
+    ctx.request_repaint();
+}
+
+/// Reset zoom to 100%, keeping the viewport center point fixed.
+#[inline]
+pub fn reset_zoom(id: Id, ctx: &Context, viewport_center: Pos2) {
+    ctx.data_mut(|d| {
+        if let Some(mut state) = d.get_temp::<SnarlStateData>(id) {
+            // Convert viewport center to graph coordinates
+            let graph_point =
+                (viewport_center - state.to_global.translation) / state.to_global.scaling;
+            // New transform at scale 1.0, keeping graph_point at viewport_center
+            state.to_global = TSTransform {
+                scaling: 1.0,
+                translation: viewport_center.to_vec2() - graph_point.to_vec2(),
+            };
+            d.insert_temp(id, state);
+        }
+    });
+    ctx.request_repaint();
+}

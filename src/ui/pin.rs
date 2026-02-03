@@ -4,9 +4,15 @@ use crate::{InPinId, OutPinId};
 
 use super::{SnarlStyle, WireStyle};
 
+/// A pin identifier that can be either an input or output pin.
+///
+/// Used when the direction of the pin doesn't matter, such as when
+/// starting a new wire drag or identifying a hovered pin.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AnyPin {
+    /// An output pin.
     Out(OutPinId),
+    /// An input pin.
     In(InPinId),
 }
 
