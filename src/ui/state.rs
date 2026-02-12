@@ -554,6 +554,17 @@ impl SnarlState {
         }
     }
 
+    pub fn toggle_many_nodes(&mut self, nodes: impl Iterator<Item = NodeId>) {
+        for node in nodes {
+            if let Some(pos) = self.selected_nodes.iter().position(|n| *n == node) {
+                self.selected_nodes.remove(pos);
+            } else {
+                self.selected_nodes.push(node);
+            }
+        }
+        self.dirty = true;
+    }
+
     pub fn deselect_all_nodes(&mut self) {
         self.dirty |= !self.selected_nodes.is_empty();
         self.selected_nodes.clear();

@@ -50,5 +50,5 @@ mod input_state;
 mod snarl_action;
 
 pub use default_input::{DefaultSnarlInput, SnarlInputConfig};
-pub use input_state::SnarlInputState;
+pub use input_state::{SelectionMode, SnarlInputState};
 pub use snarl_action::{SelectMode, SnarlAction};

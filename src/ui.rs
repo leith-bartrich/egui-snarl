@@ -4,7 +4,7 @@ use std::{collections::HashMap, hash::Hash};
 
 use egui::{
     Align, Color32, CornerRadius, Frame, Id, LayerId, Layout, Margin, Modifiers, PointerButton,
-    Pos2, Rect, Scene, Sense, Shape, Stroke, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
+    Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Style, Ui, UiBuilder, UiKind, UiStackInfo,
     Vec2,
     collapsing_header::paint_default_icon,
     emath::{GuiRounding, TSTransform},
@@ -1185,13 +1185,8 @@ where
     clamp_scale(&mut to_global, min_scale, max_scale, ui_rect);
 
     let mut snarl_resp = ui.response();
-    Scene::new()
-        .zoom_range(min_scale..=max_scale)
-        .register_pan_and_zoom(&ui, &mut snarl_resp, &mut to_global);
-
-    if snarl_resp.changed() {
-        ui.ctx().request_repaint();
-    }
+    // Pan/zoom is handled externally via SnarlAction::Pan/Zoom.
+    // No built-in Scene::register_pan_and_zoom() here.
 
     // Inform viewer about current transform.
     viewer.current_transform(&mut to_global, snarl);
@@ -1228,7 +1223,8 @@ where
 
     // Process selection rect.
     let mut rect_selection_ended = None;
-    if modifiers.shift || snarl_state.is_rect_selection() {
+    let select_active = input.selection_mode != crate::action::SelectionMode::Inactive;
+    if select_active || snarl_state.is_rect_selection() {
         let select_resp = ui.interact(snarl_resp.rect, snarl_id.with("select"), Sense::drag());
 
         if select_resp.dragged_by(PointerButton::Primary)
@@ -1291,6 +1287,8 @@ where
             &mut input_info,
             modifiers,
             &mut output_info,
+            input.selection_mode,
+            input.nav_active,
         );
 
         if let Some(response) = response {
@@ -1411,13 +1409,20 @@ where
 
         if select_nodes.is_empty() {
             // Empty rect selection = deselect all
-            // Note: shift is required to start rect selection, so we can't check
-            // modifiers here - they'd always be held. Empty rect always deselects.
             snarl_state.deselect_all_nodes();
-        } else if modifiers.command {
-            snarl_state.deselect_many_nodes(select_nodes.into_iter());
         } else {
-            snarl_state.select_many_nodes(!modifiers.shift, select_nodes.into_iter());
+            match input.selection_mode {
+                crate::action::SelectionMode::Replace => {
+                    snarl_state.select_many_nodes(true, select_nodes.into_iter());
+                }
+                crate::action::SelectionMode::Toggle => {
+                    snarl_state.toggle_many_nodes(select_nodes.into_iter());
+                }
+                crate::action::SelectionMode::Subtract => {
+                    snarl_state.deselect_many_nodes(select_nodes.into_iter());
+                }
+                crate::action::SelectionMode::Inactive => {}
+            }
         }
     }
 
@@ -1443,14 +1448,10 @@ where
         snarl_resp.flags.remove(Flags::CLICKED);
     }
 
-    // Do centering unless no nodes are present.
-    if style.get_centering() && snarl_resp.double_clicked() && nodes_bb.is_finite() {
-        let nodes_bb = nodes_bb.expand(100.0);
-        snarl_state.look_at(nodes_bb, ui_rect, min_scale, max_scale);
-    }
-
-    // Clicking on empty background deselects all (unless shift is held for additive mode)
-    if snarl_resp.clicked_by(PointerButton::Primary) && !modifiers.shift {
+    // Background click deselect: only when selection mode is active
+    if snarl_resp.clicked_by(PointerButton::Primary)
+        && input.selection_mode != crate::action::SelectionMode::Inactive
+    {
         snarl_state.deselect_all_nodes();
     }
 
@@ -1992,6 +1993,8 @@ fn draw_node<T, V>(
     input_positions: &mut HashMap<InPinId, PinResponse>,
     modifiers: Modifiers,
     output_positions: &mut HashMap<OutPinId, PinResponse>,
+    selection_mode: crate::action::SelectionMode,
+    nav_active: bool,
 ) -> Option<DrawNodeResponse>
 where
     V: SnarlViewer<T>,
@@ -2079,18 +2082,33 @@ where
     );
 
     let mut node_drag_stopped = false;
-    if !modifiers.shift && !modifiers.command && r.dragged_by(PointerButton::Primary) {
+
+    // Node dragging: only in default mode (no selection, no navigation)
+    let can_drag = selection_mode == crate::action::SelectionMode::Inactive && !nav_active;
+    if can_drag && r.dragged_by(PointerButton::Primary) {
         node_moved = Some((node, r.drag_delta()));
     }
-    if !modifiers.shift && !modifiers.command && r.drag_stopped_by(PointerButton::Primary) {
+    if can_drag && r.drag_stopped_by(PointerButton::Primary) {
         node_drag_stopped = true;
     }
 
-    if r.clicked_by(PointerButton::Primary) || r.dragged_by(PointerButton::Primary) {
-        if modifiers.shift {
-            snarl_state.select_one_node(modifiers.command, node);
-        } else if modifiers.command {
-            snarl_state.deselect_one_node(node);
+    // Node click selection: controlled by selection_mode
+    if r.clicked_by(PointerButton::Primary) {
+        match selection_mode {
+            crate::action::SelectionMode::Replace => {
+                snarl_state.select_one_node(true, node);
+            }
+            crate::action::SelectionMode::Toggle => {
+                if snarl_state.selected_nodes().contains(&node) {
+                    snarl_state.deselect_one_node(node);
+                } else {
+                    snarl_state.select_one_node(false, node);
+                }
+            }
+            crate::action::SelectionMode::Subtract => {
+                snarl_state.deselect_one_node(node);
+            }
+            crate::action::SelectionMode::Inactive => {}
         }
     }
 
