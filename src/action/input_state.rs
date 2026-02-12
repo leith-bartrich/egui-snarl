@@ -52,6 +52,9 @@ pub struct SnarlInputState {
     pub selection_mode: SelectionMode,
     /// Navigation mode active — suppresses node dragging.
     pub nav_active: bool,
+    /// Read-only mode — suppresses all graph mutations (node movement,
+    /// wire creation/disconnection, pin drags). Pan and zoom still work.
+    pub read_only: bool,
 }
 
 impl SnarlInputState {

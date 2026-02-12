@@ -1289,6 +1289,7 @@ where
             &mut output_info,
             input.selection_mode,
             input.nav_active,
+            input.read_only,
         );
 
         if let Some(response) = response {
@@ -1385,8 +1386,8 @@ where
         );
     }
 
-    // Remove hovered wire by second click
-    if hovered_wire_disconnect && let Some(wire) = hovered_wire {
+    // Remove hovered wire by second click (suppressed in read-only mode)
+    if !input.read_only && hovered_wire_disconnect && let Some(wire) = hovered_wire {
         let out_pin = OutPin::new(snarl, wire.out_pin);
         let in_pin = InPin::new(snarl, wire.in_pin);
         viewer.disconnect(&out_pin, &in_pin, snarl);
@@ -1646,6 +1647,7 @@ fn draw_inputs<T, V>(
     modifiers: Modifiers,
     input_positions: &mut HashMap<InPinId, PinResponse>,
     heights: Heights,
+    read_only: bool,
 ) -> DrawPinsResponse
 where
     V: SnarlViewer<T>,
@@ -1711,29 +1713,31 @@ where
 
             pin_ui.skip_ahead_auto_ids(1);
 
-            if r.clicked_by(PointerButton::Secondary) {
-                if snarl_state.has_new_wires() {
-                    snarl_state.remove_new_wire_in(in_pin.id);
-                } else {
-                    viewer.drop_inputs(in_pin, snarl);
-                    if !snarl.nodes.contains(node.0) {
-                        // If removed
-                        return;
-                    }
-                }
-            }
-            if r.drag_started_by(PointerButton::Primary) {
-                if modifiers.command {
-                    snarl_state.start_new_wires_out(&in_pin.remotes);
-                    if !modifiers.shift {
-                        snarl.drop_inputs(in_pin.id);
+            if !read_only {
+                if r.clicked_by(PointerButton::Secondary) {
+                    if snarl_state.has_new_wires() {
+                        snarl_state.remove_new_wire_in(in_pin.id);
+                    } else {
+                        viewer.drop_inputs(in_pin, snarl);
                         if !snarl.nodes.contains(node.0) {
                             // If removed
                             return;
                         }
                     }
-                } else {
-                    snarl_state.start_new_wire_in(in_pin.id);
+                }
+                if r.drag_started_by(PointerButton::Primary) {
+                    if modifiers.command {
+                        snarl_state.start_new_wires_out(&in_pin.remotes);
+                        if !modifiers.shift {
+                            snarl.drop_inputs(in_pin.id);
+                            if !snarl.nodes.contains(node.0) {
+                                // If removed
+                                return;
+                            }
+                        }
+                    } else {
+                        snarl_state.start_new_wire_in(in_pin.id);
+                    }
                 }
             }
 
@@ -1805,6 +1809,7 @@ fn draw_outputs<T, V>(
     modifiers: Modifiers,
     output_positions: &mut HashMap<OutPinId, PinResponse>,
     heights: Heights,
+    read_only: bool,
 ) -> DrawPinsResponse
 where
     V: SnarlViewer<T>,
@@ -1870,30 +1875,32 @@ where
 
             pin_ui.skip_ahead_auto_ids(1);
 
-            if r.clicked_by(PointerButton::Secondary) {
-                if snarl_state.has_new_wires() {
-                    snarl_state.remove_new_wire_out(out_pin.id);
-                } else {
-                    viewer.drop_outputs(out_pin, snarl);
-                    if !snarl.nodes.contains(node.0) {
-                        // If removed
-                        return;
-                    }
-                }
-            }
-            if r.drag_started_by(PointerButton::Primary) {
-                if modifiers.command {
-                    snarl_state.start_new_wires_in(&out_pin.remotes);
-
-                    if !modifiers.shift {
-                        snarl.drop_outputs(out_pin.id);
+            if !read_only {
+                if r.clicked_by(PointerButton::Secondary) {
+                    if snarl_state.has_new_wires() {
+                        snarl_state.remove_new_wire_out(out_pin.id);
+                    } else {
+                        viewer.drop_outputs(out_pin, snarl);
                         if !snarl.nodes.contains(node.0) {
                             // If removed
                             return;
                         }
                     }
-                } else {
-                    snarl_state.start_new_wire_out(out_pin.id);
+                }
+                if r.drag_started_by(PointerButton::Primary) {
+                    if modifiers.command {
+                        snarl_state.start_new_wires_in(&out_pin.remotes);
+
+                        if !modifiers.shift {
+                            snarl.drop_outputs(out_pin.id);
+                            if !snarl.nodes.contains(node.0) {
+                                // If removed
+                                return;
+                            }
+                        }
+                    } else {
+                        snarl_state.start_new_wire_out(out_pin.id);
+                    }
                 }
             }
 
@@ -1995,6 +2002,7 @@ fn draw_node<T, V>(
     output_positions: &mut HashMap<OutPinId, PinResponse>,
     selection_mode: crate::action::SelectionMode,
     nav_active: bool,
+    read_only: bool,
 ) -> Option<DrawNodeResponse>
 where
     V: SnarlViewer<T>,
@@ -2084,7 +2092,7 @@ where
     let mut node_drag_stopped = false;
 
     // Node dragging: only in default mode (no selection, no navigation)
-    let can_drag = selection_mode == crate::action::SelectionMode::Inactive && !nav_active;
+    let can_drag = selection_mode == crate::action::SelectionMode::Inactive && !nav_active && !read_only;
     if can_drag && r.dragged_by(PointerButton::Primary) {
         node_moved = Some((node, r.drag_delta()));
     }
@@ -2246,6 +2254,7 @@ where
                     modifiers,
                     input_positions,
                     node_layout.input_heights(&node_state),
+                    read_only,
                 );
 
                 let new_input_heights = r.new_heights;
@@ -2284,6 +2293,7 @@ where
                     modifiers,
                     output_positions,
                     node_layout.output_heights(&node_state),
+                    read_only,
                 );
 
                 let new_output_heights = r.new_heights;
@@ -2371,6 +2381,7 @@ where
                     modifiers,
                     input_positions,
                     node_layout.input_heights(&node_state),
+                    read_only,
                 );
 
                 let new_input_heights = r.new_heights;
@@ -2446,6 +2457,7 @@ where
                     modifiers,
                     output_positions,
                     node_layout.output_heights(&node_state),
+                    read_only,
                 );
 
                 let new_output_heights = r.new_heights;
@@ -2495,6 +2507,7 @@ where
                     modifiers,
                     output_positions,
                     node_layout.output_heights(&node_state),
+                    read_only,
                 );
 
                 let new_output_heights = r.new_heights;
@@ -2570,6 +2583,7 @@ where
                     modifiers,
                     input_positions,
                     node_layout.input_heights(&node_state),
+                    read_only,
                 );
 
                 let new_input_heights = r.new_heights;
