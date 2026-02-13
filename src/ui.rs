@@ -35,7 +35,7 @@ pub use self::{
     pin::{AnyPin, AnyPins, PinInfo, PinShape, PinWireInfo, SnarlPin},
     state::{
         deselect_all_nodes, fit_to_rect, get_selected_nodes, get_viewport_transform, reset_zoom,
-        select_all_nodes, set_viewport_transform,
+        select_all_nodes, select_one_node, set_viewport_transform,
     },
     viewer::SnarlViewer,
     wire::{WireId, WireLayer, WireStyle},

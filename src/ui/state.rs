@@ -646,6 +646,17 @@ pub fn select_all_nodes<T>(id: Id, ctx: &Context, snarl: &Snarl<T>) {
     ctx.request_repaint();
 }
 
+/// Replace the current selection with a single node.
+#[inline]
+pub fn select_one_node(id: Id, ctx: &Context, node: NodeId) {
+    let mut nodes = SmallVec::<[NodeId; 8]>::new();
+    nodes.push(node);
+    ctx.data_mut(|d| {
+        d.insert_temp(id, SelectedNodes(nodes));
+    });
+    ctx.request_repaint();
+}
+
 /// Clear the current selection.
 #[inline]
 pub fn deselect_all_nodes(id: Id, ctx: &Context) {
