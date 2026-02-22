@@ -1850,6 +1850,9 @@ where
                     min,
                     vec2(output_spacing, pin_size),
                 ));
+                // Gap between pin circle and label text (right-to-left layout
+                // doesn't get automatic item_spacing from advance_cursor_after_rect)
+                pin_ui.add_space(pin_ui.spacing().item_spacing.x);
             }
 
             let y0 = pin_ui.max_rect().min.y;
