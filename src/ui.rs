@@ -1222,9 +1222,10 @@ where
     let mut node_to_top = None;
 
     // Process selection rect.
+    // Rect-select is only active when explicitly enabled by the editor (e.g. Space held),
+    // independent of selection_mode so click-to-select can always be on.
     let mut rect_selection_ended = None;
-    let select_active = input.selection_mode != crate::action::SelectionMode::Inactive;
-    if select_active || snarl_state.is_rect_selection() {
+    if input.rect_select_active || snarl_state.is_rect_selection() {
         let select_resp = ui.interact(snarl_resp.rect, snarl_id.with("select"), Sense::drag());
 
         if select_resp.dragged_by(PointerButton::Primary)
@@ -1415,6 +1416,9 @@ where
             match input.selection_mode {
                 crate::action::SelectionMode::Replace => {
                     snarl_state.select_many_nodes(true, select_nodes.into_iter());
+                }
+                crate::action::SelectionMode::Add => {
+                    snarl_state.select_many_nodes(false, select_nodes.into_iter());
                 }
                 crate::action::SelectionMode::Toggle => {
                     snarl_state.toggle_many_nodes(select_nodes.into_iter());
@@ -2094,8 +2098,8 @@ where
 
     let mut node_drag_stopped = false;
 
-    // Node dragging: only in default mode (no selection, no navigation)
-    let can_drag = selection_mode == crate::action::SelectionMode::Inactive && !nav_active && !read_only;
+    // Node dragging: allowed in any selection mode (click and drag are mutually exclusive in egui)
+    let can_drag = !nav_active && !read_only;
     if can_drag && r.dragged_by(PointerButton::Primary) {
         node_moved = Some((node, r.drag_delta()));
     }
@@ -2108,6 +2112,9 @@ where
         match selection_mode {
             crate::action::SelectionMode::Replace => {
                 snarl_state.select_one_node(true, node);
+            }
+            crate::action::SelectionMode::Add => {
+                snarl_state.select_one_node(false, node);
             }
             crate::action::SelectionMode::Toggle => {
                 if snarl_state.selected_nodes().contains(&node) {

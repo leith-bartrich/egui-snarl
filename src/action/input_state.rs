@@ -13,6 +13,8 @@ pub enum SelectionMode {
     Inactive,
     /// Replace selection with clicked/rect'd nodes.
     Replace,
+    /// Add clicked/rect'd nodes to the current selection without clearing it.
+    Add,
     /// Toggle clicked/rect'd nodes in/out of selection.
     Toggle,
     /// Remove clicked/rect'd nodes from selection.
@@ -50,6 +52,11 @@ pub struct SnarlInputState {
     actions: Vec<SnarlAction>,
     /// Current selection mode (set by editor each frame).
     pub selection_mode: SelectionMode,
+    /// Whether background LMB drag initiates a rect selection.
+    ///
+    /// Independent of `selection_mode` so that click-to-select can always be
+    /// active while rect-select requires an explicit gesture (e.g. Space held).
+    pub rect_select_active: bool,
     /// Navigation mode active — suppresses node dragging.
     pub nav_active: bool,
     /// Read-only mode — suppresses all graph mutations (node movement,
