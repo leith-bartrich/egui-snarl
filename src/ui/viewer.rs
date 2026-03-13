@@ -15,6 +15,18 @@ pub trait SnarlViewer<T> {
     /// Returns title of the node.
     fn title(&mut self, node: &T) -> String;
 
+    /// Returns the fixed width for this node in unscaled pixels.
+    ///
+    /// This width is authoritative every frame. The node frame, pin layout,
+    /// and label truncation all derive from this value.
+    ///
+    /// Default is `200.0`. Override to use a different fixed width.
+    #[inline]
+    fn node_width(&mut self, node: &T) -> f32 {
+        let _ = node;
+        200.0
+    }
+
     /// Returns the node's frame.
     /// All node's elements will be rendered inside this frame.
     /// Except for pins if they are configured to be rendered outside of the frame.

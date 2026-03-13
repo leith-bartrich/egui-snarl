@@ -1854,8 +1854,6 @@ where
                     min,
                     vec2(output_spacing, pin_size),
                 ));
-                // Gap between pin circle and label text (right-to-left layout
-                // doesn't get automatic item_spacing from advance_cursor_after_rect)
                 pin_ui.add_space(pin_ui.spacing().item_spacing.x);
             }
 
@@ -2041,6 +2039,10 @@ where
 
     let mut node_state = NodeState::load(ui.ctx(), node_id, ui.spacing());
 
+    // Use the viewer's declared width — authoritative every frame.
+    let declared_width = viewer.node_width(value);
+    node_state.set_width(declared_width);
+
     let node_rect = node_state.node_rect(node_pos, openness);
 
     let mut node_to_top = None;
@@ -2168,6 +2170,10 @@ where
     let mut new_pins_size = Vec2::ZERO;
 
     let r = node_frame.show(node_ui, |ui| {
+        // Force the frame content to fill the full declared width so the
+        // visual background matches the pin circle positions.
+        ui.set_min_width(node_rect.width());
+
         if viewer.has_node_style(node, &inputs, &outputs, snarl) {
             viewer.apply_node_style(ui.style_mut(), node, &inputs, &outputs, snarl);
         }
@@ -2245,6 +2251,17 @@ where
 
         let pins_rect = match node_layout.kind {
             NodeLayoutKind::Coil => {
+                // Split payload into left/right halves for inputs/outputs.
+                let mid_x = payload_rect.min.x + payload_rect.width() * 0.5;
+                let inputs_half = Rect::from_min_max(
+                    payload_rect.min,
+                    pos2(mid_x, payload_rect.max.y),
+                );
+                let outputs_half = Rect::from_min_max(
+                    pos2(mid_x, payload_rect.min.y),
+                    payload_rect.max,
+                );
+
                 // Show input pins.
                 let r = draw_inputs(
                     snarl,
@@ -2254,7 +2271,7 @@ where
                     pin_size,
                     style,
                     ui,
-                    payload_rect,
+                    inputs_half,
                     payload_clip_rect,
                     input_x,
                     node_rect.min.y,
@@ -2293,7 +2310,7 @@ where
                     pin_size,
                     style,
                     ui,
-                    payload_rect,
+                    outputs_half,
                     payload_clip_rect,
                     output_x,
                     node_rect.min.y,
@@ -2706,7 +2723,7 @@ where
         node_state.set_header_height(header_size.y);
 
         node_state.set_size(vec2(
-            f32::max(header_size.x, new_pins_size.x),
+            declared_width,
             header_size.y
                 + header_frame.total_margin().bottom
                 + ui.spacing().item_spacing.y

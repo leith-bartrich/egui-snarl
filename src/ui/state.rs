@@ -96,6 +96,15 @@ impl NodeState {
         }
     }
 
+    /// Set the width directly, preserving height.
+    pub fn set_width(&mut self, width: f32) {
+        #[allow(clippy::float_cmp)]
+        if self.size.x != width {
+            self.size.x = width;
+            self.dirty = true;
+        }
+    }
+
     pub fn header_height(&self) -> f32 {
         self.header_height.round_ui()
     }
