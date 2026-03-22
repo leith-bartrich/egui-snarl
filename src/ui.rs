@@ -1849,12 +1849,14 @@ where
         outputs_ui.scope_builder(builder, |pin_ui| {
             // Allocate space for pin shape.
             if let Some(output_spacing) = output_spacing {
-                let min = pin_ui.next_widget_position();
-                pin_ui.advance_cursor_after_rect(Rect::from_min_size(
-                    min,
+                let pos = pin_ui.next_widget_position();
+                // In right_to_left layout, pos is at the right edge.
+                // Reserve space extending LEFT from there.
+                let rect = Rect::from_min_size(
+                    pos2(pos.x - output_spacing, pos.y),
                     vec2(output_spacing, pin_size),
-                ));
-                pin_ui.add_space(pin_ui.spacing().item_spacing.x);
+                );
+                pin_ui.advance_cursor_after_rect(rect);
             }
 
             let y0 = pin_ui.max_rect().min.y;
