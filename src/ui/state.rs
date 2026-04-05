@@ -182,6 +182,9 @@ pub struct SnarlState {
     /// Active rect selection.
     rect_selection: Option<RectSelect>,
 
+    /// Graph-space position where a wire was dropped (for node placement).
+    drop_pos: Option<Pos2>,
+
     /// Order of nodes to draw.
     draw_order: Vec<NodeId>,
 
@@ -234,6 +237,7 @@ struct SnarlStateData {
     new_wires: Option<NewWires>,
     new_wires_menu: bool,
     rect_selection: Option<RectSelect>,
+    drop_pos: Option<Pos2>,
 }
 
 impl SnarlStateData {
@@ -280,6 +284,7 @@ impl SnarlState {
             id,
             dirty,
             rect_selection: data.rect_selection,
+            drop_pos: data.drop_pos,
             draw_order,
             selected_nodes,
         }
@@ -311,8 +316,9 @@ impl SnarlState {
             new_wires_menu: false,
             id,
             dirty: true,
-            draw_order: Vec::new(),
             rect_selection: None,
+            drop_pos: None,
+            draw_order: Vec::new(),
             selected_nodes: SmallVec::new(),
         }
     }
@@ -327,6 +333,7 @@ impl SnarlState {
                 new_wires: self.new_wires,
                 new_wires_menu: self.new_wires_menu,
                 rect_selection: self.rect_selection,
+                drop_pos: self.drop_pos,
             };
             data.save(cx, self.id);
 
@@ -480,10 +487,16 @@ impl SnarlState {
         }
     }
 
-    pub(crate) fn set_new_wires_menu(&mut self, wires: NewWires) {
+    pub(crate) fn set_new_wires_menu(&mut self, wires: NewWires, drop_pos: Pos2) {
         debug_assert!(self.new_wires.is_none());
         self.new_wires = Some(wires);
         self.new_wires_menu = true;
+        self.drop_pos = Some(drop_pos);
+    }
+
+    /// Graph-space position where the wire was dropped (captured once at drop time).
+    pub(crate) fn drop_pos(&self) -> Option<Pos2> {
+        self.drop_pos
     }
 
     pub(crate) fn update_draw_order<T>(&mut self, snarl: &Snarl<T>) -> Vec<NodeId> {

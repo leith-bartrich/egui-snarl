@@ -1496,9 +1496,14 @@ where
                 };
 
                 if viewer.has_dropped_wire_menu(pins, snarl) {
+                    // Capture the drop position NOW, while interact_pos is the actual drop point.
+                    let drop_graph_pos = ui.ctx().input(|i| i.pointer.interact_pos())
+                        .map(|p| from_global * p)
+                        .unwrap_or_default();
+
                     // A wire is dropped without connecting to a pin.
                     // Show context menu for the wire drop.
-                    snarl_state.set_new_wires_menu(new_wires);
+                    snarl_state.set_new_wires_menu(new_wires, drop_graph_pos);
 
                     // Force open context menu.
                     snarl_resp.flags.insert(Flags::LONG_TOUCHED);
@@ -1510,6 +1515,10 @@ where
 
     if let Some(interact_pos) = ui.ctx().input(|i| i.pointer.interact_pos()) {
         if let Some(new_wires) = snarl_state.take_new_wires_menu() {
+            // Use the stored drop position (captured once at wire-drop time),
+            // not the current pointer which has moved to the menu popup.
+            let graph_pos = snarl_state.drop_pos().unwrap_or(from_global * interact_pos);
+
             let pins = match &new_wires {
                 NewWires::In(x) => AnyPins::In(x),
                 NewWires::Out(x) => AnyPins::Out(x),
@@ -1522,25 +1531,22 @@ where
                         NewWires::Out(x) => AnyPins::Out(x),
                     };
 
-                    let menu_pos = from_global * ui.cursor().min;
-
                     // Override wire end position when the wire-drop context menu is opened.
-                    wire_end_pos = menu_pos;
+                    wire_end_pos = graph_pos;
 
                     // The context menu is opened as *link* graph menu.
-                    viewer.show_dropped_wire_menu(menu_pos, ui, pins, snarl);
+                    viewer.show_dropped_wire_menu(graph_pos, ui, pins, snarl);
 
                     // Even though menu could be closed in `show_dropped_wire_menu`,
                     // we need to revert the new wires here, because menu state is inaccessible.
                     // Next frame context menu won't be shown and wires will be removed.
-                    snarl_state.set_new_wires_menu(new_wires);
+                    snarl_state.set_new_wires_menu(new_wires, graph_pos);
                 });
             }
         } else if viewer.has_graph_menu(interact_pos, snarl) {
             snarl_resp.context_menu(|ui| {
-                let menu_pos = from_global * ui.cursor().min;
-
-                viewer.show_graph_menu(menu_pos, ui, snarl);
+                let graph_pos = from_global * interact_pos;
+                viewer.show_graph_menu(graph_pos, ui, snarl);
             });
         }
     }
