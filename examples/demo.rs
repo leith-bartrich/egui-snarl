@@ -965,7 +965,8 @@ impl DemoApp {
     pub fn new(cx: &CreationContext) -> Self {
         egui_extras::install_image_loaders(&cx.egui_ctx);
 
-        cx.egui_ctx.style_mut(|style| style.animation_time *= 10.0);
+        cx.egui_ctx
+            .global_style_mut(|style| style.animation_time *= 10.0);
 
         let snarl = cx.storage.map_or_else(Snarl::new, |storage| {
             storage
@@ -988,8 +989,8 @@ impl DemoApp {
 }
 
 impl App for DemoApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::Panel::top("top_panel").show(ui, |ui| {
             // The top panel is often a good place for a menu bar:
 
             egui::MenuBar::new().ui(ui, |ui| {
@@ -997,7 +998,7 @@ impl App for DemoApp {
                 {
                     ui.menu_button("File", |ui| {
                         if ui.button("Quit").clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            ui.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
                     });
                     ui.add_space(16.0);
@@ -1011,13 +1012,13 @@ impl App for DemoApp {
             });
         });
 
-        egui::SidePanel::left("style").show(ctx, |ui| {
+        egui::Panel::left("style").show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 egui_probe::Probe::new(&mut self.style).show(ui);
             });
         });
 
-        egui::SidePanel::right("selected-list").show(ctx, |ui| {
+        egui::Panel::right("selected-list").show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.strong("Selected nodes");
 
@@ -1049,7 +1050,7 @@ impl App for DemoApp {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             SnarlWidget::new()
                 .id(Id::new("snarl-demo"))
                 .style(self.style)

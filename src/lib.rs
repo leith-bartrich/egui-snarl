@@ -21,7 +21,8 @@ pub mod ui;
 
 use std::ops::{Index, IndexMut};
 
-use egui::{Pos2, ahash::HashSet};
+use ahash::HashSet;
+use egui::Pos2;
 use slab::Slab;
 
 impl<T> Default for Snarl<T> {
@@ -134,7 +135,7 @@ impl<'de> serde::Deserialize<'de> for Wires {
             where
                 A: serde::de::SeqAccess<'de>,
             {
-                let mut wires = HashSet::with_hasher(egui::ahash::RandomState::new());
+                let mut wires = HashSet::with_hasher(ahash::RandomState::new());
                 while let Some(wire) = seq.next_element()? {
                     wires.insert(wire);
                 }
@@ -150,7 +151,7 @@ impl<'de> serde::Deserialize<'de> for Wires {
 impl Wires {
     fn new() -> Self {
         Wires {
-            wires: HashSet::with_hasher(egui::ahash::RandomState::new()),
+            wires: HashSet::with_hasher(ahash::RandomState::new()),
         }
     }
 
