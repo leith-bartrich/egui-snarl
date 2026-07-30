@@ -1,6 +1,6 @@
 //! This module provides functionality for showing [`Snarl`] graph in [`Ui`].
 
-use std::{collections::HashMap, hash::Hash};
+use std::collections::HashMap;
 
 use egui::{
     Align, Color32, CornerRadius, Frame, Id, LayerId, Layout, Margin, Modifiers, PointerButton,
@@ -905,7 +905,7 @@ impl SnarlWidget {
     /// Ignored if [`SnarlWidget::id`] was set.
     #[inline]
     #[must_use]
-    pub fn id_salt(mut self, id_salt: impl Hash) -> Self {
+    pub fn id_salt(mut self, id_salt: impl egui::AsId) -> Self {
         self.id_salt = Id::new(id_salt);
         self
     }
@@ -2099,9 +2099,22 @@ where
 
     let header_drag_space = style.get_header_drag_space(ui.style()).max(Vec2::ZERO);
 
+    if !snarl.nodes.contains(node.0) {
+        node_state.clear(ui.ctx());
+        // If removed
+        return None;
+    }
+
+    let node_ui = &mut ui.new_child(
+        UiBuilder::new()
+            .max_rect(node_frame_rect.round_ui())
+            .layout(Layout::top_down(Align::Center))
+            .id(node_id),
+    );
+
     // Interact with node frame.
-    let r = ui.interact(
-        node_frame_rect,
+    let r = node_ui.interact(
+        node_frame_rect.round_ui(),
         node_id.with("frame"),
         Sense::click_and_drag(),
     );
@@ -2148,32 +2161,25 @@ where
         r.context_menu(|ui| {
             viewer.show_node_menu(node, &inputs, &outputs, ui, snarl);
         });
-    }
 
-    if !snarl.nodes.contains(node.0) {
-        node_state.clear(ui.ctx());
-        // If removed
-        return None;
+        if !snarl.nodes.contains(node.0) {
+            node_state.clear(ui.ctx());
+            // If removed
+            return None;
+        }
     }
 
     if viewer.has_on_hover_popup(&snarl.nodes[node.0].value) {
         r.on_hover_ui_at_pointer(|ui| {
             viewer.show_on_hover_popup(node, &inputs, &outputs, ui, snarl);
         });
-    }
 
-    if !snarl.nodes.contains(node.0) {
-        node_state.clear(ui.ctx());
-        // If removed
-        return None;
+        if !snarl.nodes.contains(node.0) {
+            node_state.clear(ui.ctx());
+            // If removed
+            return None;
+        }
     }
-
-    let node_ui = &mut ui.new_child(
-        UiBuilder::new()
-            .max_rect(node_frame_rect.round_ui())
-            .layout(Layout::top_down(Align::Center))
-            .id_salt(node_id),
-    );
 
     let mut new_pins_size = Vec2::ZERO;
 
@@ -2852,7 +2858,7 @@ impl<T> Snarl<T> {
         viewer: &mut V,
         style: &SnarlStyle,
         input: &mut crate::action::SnarlInputState,
-        id_salt: impl Hash,
+        id_salt: impl egui::AsIdSalt,
         ui: &mut Ui,
     ) -> SnarlResponse
     where

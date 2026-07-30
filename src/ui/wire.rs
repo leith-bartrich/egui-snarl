@@ -1,6 +1,7 @@
 use core::f32;
 
-use egui::{Context, Id, Pos2, Rect, Shape, Stroke, Ui, ahash::HashMap, cache::CacheTrait, pos2};
+use ahash::HashMap;
+use egui::{Context, Id, Pos2, Rect, Shape, Stroke, Ui, cache::CacheTrait, pos2};
 
 use crate::{InPinId, OutPinId};
 
@@ -691,10 +692,6 @@ impl CacheTrait for WiresCache {
 
     fn len(&self) -> usize {
         self.bezier_3.len() + self.bezier_5.len() + self.axis_aligned.len()
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
     }
 }
 
